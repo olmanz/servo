@@ -14,6 +14,7 @@ use hyper::header::Headers;
 use hyper::method::Method;
 use hyper::status::StatusCode;
 use hyper_serde::Serde;
+use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
 use net_traits::{Metadata, FetchMetadata};
 use net_traits::request::Request;
 use net_traits::response::{HttpsState, Response, ResponseBody};
@@ -28,6 +29,7 @@ use time::{Duration, Tm};
 
 /// The key used to differentiate requests in the cache.
 #[derive(Clone, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "servo", derive(MallocSizeOf))]
 pub struct CacheKey {
     url: ServoUrl
 }
@@ -51,6 +53,12 @@ impl CacheKey {
     }
 }
 
+impl MallocSizeOf for CacheKey {
+    fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
+        self.url.size_of(ops)
+    }
+}
+
 /// A complete cached resource.
 #[derive(Clone)]
 struct CachedResource {
@@ -64,6 +72,12 @@ struct CachedResource {
     url_list: Vec<ServoUrl>,
     expires: Duration,
     last_validated: Tm
+}
+
+impl MallocSizeOf for CachedResource {
+    fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
+        self.metadata.size_of(ops)
+    }
 }
 
 /// Metadata about a loaded resource, such as is obtained from HTTP headers.
@@ -81,6 +95,12 @@ struct CachedMetadata {
     pub status: Option<(u16, Vec<u8>)>
 }
 
+impl MallocSizeOf for CachedMetadata {
+    fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
+        self.final_url.size_of(ops)
+    }
+}
+
 /// Wrapper around a cached response, including information on re-validation needs
 pub struct CachedResponse {
     /// The response constructed from the cached resource
@@ -90,6 +110,7 @@ pub struct CachedResponse {
 }
 
 /// A memory cache.
+#[derive(MallocSizeOf)]
 pub struct HttpCache {
     /// cached responses.
     entries: HashMap<CacheKey, Vec<CachedResource>>,
