@@ -23,7 +23,8 @@ use net_traits::WebSocketNetworkEvent;
 use net_traits::request::{Request, RequestInit};
 use net_traits::response::{Response, ResponseInit};
 use net_traits::storage_thread::StorageThreadMsg;
-use profile_traits::time::ProfilerChan;
+use profile_traits::time;
+use profile_traits::mem;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use servo_config::opts;
@@ -37,7 +38,7 @@ use std::io::prelude::*;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{Sender, channel};
 use std::thread;
 use storage_thread::StorageThreadFactory;
 use websocket_loader;
@@ -47,13 +48,15 @@ const TFD_PROVIDER: &'static TFDProvider = &TFDProvider;
 /// Returns a tuple of (public, private) senders to the new threads.
 pub fn new_resource_threads(user_agent: Cow<'static, str>,
                             devtools_chan: Option<Sender<DevtoolsControlMsg>>,
-                            profiler_chan: ProfilerChan,
+                            time_profiler_chan: time::ProfilerChan,
+                            mem_profiler_chan: mem::ProfilerChan,
                             config_dir: Option<PathBuf>)
                             -> (ResourceThreads, ResourceThreads) {
     let (public_core, private_core) = new_core_resource_thread(
         user_agent,
         devtools_chan,
-        profiler_chan,
+        time_profiler_chan,
+        mem_profiler_chan,
         config_dir.clone());
     let storage: IpcSender<StorageThreadMsg> = StorageThreadFactory::new(config_dir);
     (ResourceThreads::new(public_core, storage.clone()),
@@ -64,22 +67,29 @@ pub fn new_resource_threads(user_agent: Cow<'static, str>,
 /// Create a CoreResourceThread
 pub fn new_core_resource_thread(user_agent: Cow<'static, str>,
                                 devtools_chan: Option<Sender<DevtoolsControlMsg>>,
-                                profiler_chan: ProfilerChan,
+                                time_profiler_chan: time::ProfilerChan,
+                                mem_profiler_chan: mem::ProfilerChan,
                                 config_dir: Option<PathBuf>)
                                 -> (CoreResourceThread, CoreResourceThread) {
     let (public_setup_chan, public_setup_port) = ipc::channel().unwrap();
     let (private_setup_chan, private_setup_port) = ipc::channel().unwrap();
     thread::Builder::new().name("ResourceManager".to_owned()).spawn(move || {
         let resource_manager = CoreResourceManager::new(
-            user_agent, devtools_chan, profiler_chan
+            user_agent, devtools_chan, time_profiler_chan
         );
 
         let mut channel_manager = ResourceChannelManager {
             resource_manager: resource_manager,
             config_dir: config_dir,
         };
-        channel_manager.start(public_setup_port,
-                              private_setup_port);
+
+        let reporter_name = String::from("network-cache-reporter");
+        let chan = channel();
+        mem_profiler_chan.run_with_memory_reporting(|| {
+            channel_manager.start(public_setup_port,
+                                  private_setup_port);
+        }, reporter_name, chan.0, |_| ());
+
     }).expect("Thread spawning failed");
     (public_setup_chan, private_setup_chan)
 }
@@ -301,7 +311,7 @@ pub struct CoreResourceManager {
 impl CoreResourceManager {
     pub fn new(user_agent: Cow<'static, str>,
                devtools_channel: Option<Sender<DevtoolsControlMsg>>,
-               _profiler_chan: ProfilerChan) -> CoreResourceManager {
+               _profiler_chan: time::ProfilerChan) -> CoreResourceManager {
         CoreResourceManager {
             user_agent: user_agent,
             devtools_chan: devtools_channel,
