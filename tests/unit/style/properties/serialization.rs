@@ -37,11 +37,11 @@ fn property_declaration_block_should_serialize_correctly() {
          Importance::Normal),
 
         (PropertyDeclaration::OverflowX(
-            OverflowValue::auto),
+            OverflowValue::Auto),
          Importance::Normal),
 
         (PropertyDeclaration::OverflowY(
-            OverflowValue::auto),
+            OverflowValue::Auto),
          Importance::Normal),
     ];
 
@@ -74,7 +74,7 @@ mod shorthand_serialization {
         fn equal_overflow_properties_should_serialize_to_single_value() {
             let mut properties = Vec::new();
 
-            let overflow = OverflowValue::auto;
+            let overflow = OverflowValue::Auto;
             properties.push(PropertyDeclaration::OverflowX(overflow));
             properties.push(PropertyDeclaration::OverflowY(overflow));
 
@@ -86,10 +86,10 @@ mod shorthand_serialization {
         fn different_overflow_properties_should_serialize_to_two_values() {
             let mut properties = Vec::new();
 
-            let overflow_x = OverflowValue::scroll;
+            let overflow_x = OverflowValue::Scroll;
             properties.push(PropertyDeclaration::OverflowX(overflow_x));
 
-            let overflow_y = OverflowValue::auto;
+            let overflow_y = OverflowValue::Auto;
             properties.push(PropertyDeclaration::OverflowY(overflow_y));
 
             let serialization = shorthand_properties_to_string(properties);

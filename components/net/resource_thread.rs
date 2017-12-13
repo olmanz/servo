@@ -25,6 +25,7 @@ use net_traits::response::{Response, ResponseInit};
 use net_traits::storage_thread::StorageThreadMsg;
 use profile_traits::time;
 use profile_traits::mem;
+use profile_traits::mem::ReporterRequest;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use servo_config::opts;
@@ -38,7 +39,7 @@ use std::io::prelude::*;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
-use std::sync::mpsc::{Sender, channel};
+use std::sync::mpsc::Sender;
 use std::thread;
 use storage_thread::StorageThreadFactory;
 use websocket_loader;
@@ -84,10 +85,11 @@ pub fn new_core_resource_thread(user_agent: Cow<'static, str>,
         };
 
         let reporter_name = String::from("network-cache-reporter");
-        let chan = channel();
+        let chan = ipc::channel().unwrap();
         mem_profiler_chan.run_with_memory_reporting(|| {
             channel_manager.start(public_setup_port,
-                                  private_setup_port);
+                                  private_setup_port,
+                                                chan.1);
         }, reporter_name, chan.0, |_| ());
 
     }).expect("Thread spawning failed");
@@ -137,20 +139,24 @@ impl ResourceChannelManager {
     #[allow(unsafe_code)]
     fn start(&mut self,
              public_receiver: IpcReceiver<CoreResourceMsg>,
-             private_receiver: IpcReceiver<CoreResourceMsg>) {
+             private_receiver: IpcReceiver<CoreResourceMsg>,
+             memory_reporter: IpcReceiver<ReporterRequest>) {
         let (public_http_state, private_http_state) =
             create_http_states(self.config_dir.as_ref().map(Deref::deref));
 
         let mut rx_set = IpcReceiverSet::new().unwrap();
         let private_id = rx_set.add(private_receiver).unwrap();
         let public_id = rx_set.add(public_receiver).unwrap();
+        let memory_id = rx_set.add(memory_reporter).unwrap();
 
         loop {
             for (id, data) in rx_set.select().unwrap().into_iter().map(|m| m.unwrap()) {
                 let group = if id == private_id {
                     &private_http_state
-                } else {
+                } else if id == public_id {
                     assert_eq!(id, public_id);
+                    &public_http_state
+                } else {
                     &public_http_state
                 };
                 if let Ok(msg) = data.to() {
